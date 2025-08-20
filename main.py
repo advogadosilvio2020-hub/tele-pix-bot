@@ -1,5 +1,4 @@
 import os
-import asyncio
 import logging
 import base64
 from typing import Optional
@@ -25,16 +24,12 @@ def criar_cobranca_pix(valor_centavos: int, descricao: str, customer_email: Opti
         raise RuntimeError("PAGARME_SECRET_KEY não definida.")
     url = f"{PAGARME_API_BASE}/orders"
     payload = {
-        "items": [ {"amount": valor_centavos, "description": descricao[:255], "quantity": 1} ],
-        "payments": [ {"payment_method": "pix"} ]
+        "items": [{"amount": valor_centavos, "description": descricao[:255], "quantity": 1}],
+        "payments": [{"payment_method": "pix"}],
     }
     if customer_email:
         payload["customer"] = {"name": "Cliente", "email": customer_email}
-
-    headers = {
-        "Authorization": _pagarme_auth_header(PAGARME_SECRET_KEY),
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": _pagarme_auth_header(PAGARME_SECRET_KEY), "Content-Type": "application/json"}
     r = requests.post(url, json=payload, headers=headers, timeout=30)
     r.raise_for_status()
     return r.json()
@@ -53,8 +48,7 @@ HELP_TEXT = (
     "• `/start` – status\n"
     "• `/help` – ajuda\n"
     "• `/id` – mostra seu user_id\n"
-    "• `/pix <valor> <descrição...>` – cria cobrança PIX na Pagar.me\n"
-    "   ex.: `/pix 19.90 Plano mensal`\n"
+    "• `/pix <valor> <descrição...>` – cria cobrança PIX (ex.: `/pix 19.90 Plano`)\n"
     "• `/stop` – parar o bot (somente ADMIN)\n"
 )
 
@@ -79,7 +73,6 @@ async def pix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not PAGARME_SECRET_KEY:
         await update.message.reply_text("❗ Configure a variável PAGARME_SECRET_KEY antes de usar /pix.")
         return
-
     if not context.args or len(context.args) < 2:
         await update.message.reply_text("Uso: /pix <valor> <descrição...>\nEx.: /pix 19.90 Plano mensal")
         return
@@ -95,20 +88,20 @@ async def pix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resp = criar_cobranca_pix(centavos, descricao)
         charges = resp.get("charges") or resp.get("payments") or []
         resumo = [f"✅ PIX criado com sucesso!", f"Descrição: {descricao[:80]}", f"Valor: R$ {centavos/100:.2f}"]
-        def dig(obj, out: dict):
+        info = {}
+        def dig(obj):
             if isinstance(obj, dict):
                 for k, v in obj.items():
                     lk = k.lower()
                     if isinstance(v, str):
                         if lk in ("qr_code_url", "qr_code_link", "payment_link", "link"):
-                            out.setdefault("link", v)
+                            info.setdefault("link", v)
                         if lk in ("qr_code", "qrcode", "qr", "qr_code_base64"):
-                            out.setdefault("qr", v)
-                    dig(v, out)
+                            info.setdefault("qr", v)
+                    dig(v)
             elif isinstance(obj, list):
-                for el in obj: dig(el, out)
-        info = {}
-        dig(charges, info)
+                for el in obj: dig(el)
+        dig(charges)
         if info.get("link"): resumo.append(f"🔗 Link: {info['link']}")
         if info.get("qr") and len(info["qr"]) < 1500:
             resumo.append("\n🔑 Chave PIX (QR):\n" + info["qr"])
@@ -119,15 +112,13 @@ async def pix_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Falha ao criar cobrança PIX: {e}")
 
-async def main():
-    missing = []
-    if not TELEGRAM_TOKEN: missing.append("TELEGRAM_TOKEN")
-    if not PAGARME_SECRET_KEY: missing.append("PAGARME_SECRET_KEY")
-    if missing:
-        raise RuntimeError("Variáveis ausentes: " + ", ".join(missing))
+def main():
+    if not TELEGRAM_TOKEN:
+        raise RuntimeError("TELEGRAM_TOKEN não definido.")
+    if not PAGARME_SECRET_KEY:
+        raise RuntimeError("PAGARME_SECRET_KEY não definido.")
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    await app.bot.delete_webhook(drop_pending_updates=True)
 
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -135,7 +126,8 @@ async def main():
     app.add_handler(CommandHandler("stop", stop_cmd))
     app.add_handler(CommandHandler("pix", pix_cmd))
 
-    await app.run_polling(allowed_updates=None)
+    # PTB v21: run_polling síncrono; descarta updates antigos
+    app.run_polling(drop_pending_updates=True, allowed_updates=None)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
