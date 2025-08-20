@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: telegram-bot
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    autoDeploy: true
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: PAGARME_SECRET_KEY
+        sync: false
+      - key: PAGARME_API_BASE
+        value: https://api.pagar.me/core/v5
